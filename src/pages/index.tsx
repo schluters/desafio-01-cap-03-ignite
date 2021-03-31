@@ -2,7 +2,6 @@ import { GetStaticProps } from 'next';
 import Link from 'next/link';
 import Head from 'next/head';
 import Prismic from '@prismicio/client';
-import { RichText } from 'prismic-dom';
 import { format } from 'date-fns';
 import ptBR from 'date-fns/locale/pt-BR';
 
@@ -31,9 +30,13 @@ interface PostPagination {
 
 interface HomeProps {
   postsPagination: PostPagination;
+  preview: boolean;
 }
 
-export default function Home({ postsPagination }: HomeProps): JSX.Element {
+export default function Home({
+  postsPagination,
+  preview,
+}: HomeProps): JSX.Element {
   const [posts, setPosts] = useState(postsPagination.results);
   const [nextPage, setNextPage] = useState(postsPagination.next_page);
   function loadMorePosts(): void {
@@ -113,19 +116,30 @@ export default function Home({ postsPagination }: HomeProps): JSX.Element {
               Carregar mais posts
             </button>
           )}
+          {preview && (
+            <aside>
+              <Link href="/api/exit-preview">
+                <a>Sair do modo Preview</a>
+              </Link>
+            </aside>
+          )}
         </section>
       </main>
     </>
   );
 }
 
-export const getStaticProps: GetStaticProps = async () => {
+export const getStaticProps: GetStaticProps = async ({
+  preview = false,
+  previewData = {},
+}) => {
   const prismic = getPrismicClient();
   const postsResponse = await prismic.query(
     [Prismic.Predicates.at('document.type', 'post')],
     {
       fetch: ['post.title', 'post.subtitle', 'post.author'],
       pageSize: 2,
+      ref: previewData?.ref ?? null,
     }
   );
   const posts = postsResponse.results.map(post => {
@@ -145,6 +159,7 @@ export const getStaticProps: GetStaticProps = async () => {
         next_page: postsResponse.next_page,
         results: posts,
       },
+      preview,
     },
   };
 };

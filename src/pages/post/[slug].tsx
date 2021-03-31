@@ -1,6 +1,7 @@
 /* eslint-disable no-return-assign */
 /* eslint-disable no-param-reassign */
 import { GetStaticPaths, GetStaticProps } from 'next';
+import Link from 'next/link';
 import Head from 'next/head';
 import Prismic from '@prismicio/client';
 import { format } from 'date-fns';
@@ -10,12 +11,14 @@ import { RichText } from 'prismic-dom';
 import { useRouter } from 'next/router';
 import { getPrismicClient } from '../../services/prismic';
 import Header from '../../components/Header';
+import Comments from '../../components/Comments';
 
 import commonStyles from '../../styles/common.module.scss';
 import styles from './post.module.scss';
 
 interface Post {
   first_publication_date: string | null;
+  last_publication_date: string | null;
   data: {
     title: string;
     banner: {
@@ -26,7 +29,7 @@ interface Post {
       heading: string;
       body: {
         text: string;
-      };
+      }[];
     }[];
   };
   timer: number | null;
@@ -34,15 +37,27 @@ interface Post {
 
 interface PostProps {
   post: Post;
+  navigation: {
+    prevPost: {
+      uid: string;
+      data: {
+        title: string;
+      };
+    }[];
+    nextPost: {
+      uid: string;
+      data: {
+        title: string;
+      };
+    }[];
+  };
 }
 
-export default function Post({ post }: PostProps): JSX.Element {
+export default function Post({ post, navigation }: PostProps): JSX.Element {
   const router = useRouter();
-  // const datePublication = ;
-
   const totalWords = post.data.content.reduce((accumulator, content) => {
     accumulator += content.heading.split(' ').length;
-    const words: number = content.body.map(item => item.text.split(' ').length);
+    const words = content.body.map(item => item.text.split(' ').length);
     words.map(word => (accumulator += word));
     return accumulator;
   }, 0);
@@ -51,10 +66,24 @@ export default function Post({ post }: PostProps): JSX.Element {
   if (router.isFallback) {
     return <h1>Carregando...</h1>;
   }
+  const isPostEdited =
+    post.first_publication_date !== post.last_publication_date;
+
+  let editionDate;
+  if (isPostEdited) {
+    editionDate = format(
+      new Date(post.last_publication_date),
+      "'* editado em' dd MMM yyyy', às 'HH':'mm",
+      {
+        locale: ptBR,
+      }
+    );
+  }
+
   return (
     <>
       <Head>
-        <title>| spacetraveling</title>
+        <title>{post.data.title} | spacetraveling</title>
       </Head>
       <Header />
       <main className={`${commonStyles.container} ${styles.postContainer}`}>
@@ -63,46 +92,78 @@ export default function Post({ post }: PostProps): JSX.Element {
           src={post.data.banner.url}
           alt="Banner"
         />
-        <article className={`${commonStyles.content} ${styles.postContent}`}>
-          <h1>{post.data.title}</h1>
-          <div className={styles.info}>
-            <span>
-              <BiCalendarAlt />
-              <small>
-                <time>
-                  {format(
-                    new Date(post.first_publication_date),
-                    'dd MMM yyyy',
-                    {
-                      locale: ptBR,
-                    }
-                  )}
-                </time>
-              </small>
-            </span>
-            <span>
-              <BiUser />
-              <small>{post.data.author}</small>
-            </span>
-            <span>
-              <BiTimeFive />
-              <small>{readTime} min</small>
-            </span>
-          </div>
-          <div className={styles.bodyPost}>
-            {post.data.content.map(content => (
-              <div key={content.heading}>
-                <h2>{content.heading}</h2>
-                <div
-                  className={styles.text}
-                  dangerouslySetInnerHTML={{
-                    __html: RichText.asHtml(content.body),
-                  }}
-                />
+        <div className={commonStyles.content}>
+          <article className={styles.postContent}>
+            <h1>{post.data.title}</h1>
+            <div className={styles.info}>
+              <span>
+                <BiCalendarAlt />
+                <small>
+                  <time>
+                    {format(
+                      new Date(post.first_publication_date),
+                      'dd MMM yyyy',
+                      {
+                        locale: ptBR,
+                      }
+                    )}
+                  </time>
+                </small>
+              </span>
+              <span>
+                <BiUser />
+                <small>{post.data.author}</small>
+              </span>
+              <span>
+                <BiTimeFive />
+                <small>{readTime} min</small>
+              </span>
+            </div>
+            {isPostEdited && (
+              <div className={styles.info}>
+                <span>
+                  <small>
+                    <time>{editionDate}</time>
+                  </small>
+                </span>
               </div>
-            ))}
-          </div>
-        </article>
+            )}
+            <div className={styles.bodyPost}>
+              {post.data.content.map(content => (
+                <div key={content.heading}>
+                  <h2>{content.heading}</h2>
+                  <div
+                    className={styles.text}
+                    // eslint-disable-next-line react/no-danger
+                    dangerouslySetInnerHTML={{
+                      __html: RichText.asHtml(content.body),
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </article>
+          <section className={styles.postsNavigation}>
+            {navigation.prevPost.length > 0 && (
+              <div>
+                <h3>{navigation.prevPost[0].data.title}</h3>
+                <Link href={`/post/${navigation.prevPost[0].uid}`}>
+                  <a>Post anterior</a>
+                </Link>
+              </div>
+            )}
+
+            {navigation.nextPost.length > 0 && (
+              <div>
+                <h3>{navigation.nextPost[0].data.title}</h3>
+                <Link href={`/post/${navigation.nextPost[0].uid}`}>
+                  <a>Próximo post</a>
+                </Link>
+              </div>
+            )}
+          </section>
+          <Comments />
+        </div>
       </main>
     </>
   );
@@ -127,9 +188,29 @@ export const getStaticProps: GetStaticProps = async context => {
   const prismic = getPrismicClient();
   const { slug } = context.params;
   const response = await prismic.getByUID('post', String(slug), {});
+
+  const prevPost = await prismic.query(
+    [Prismic.Predicates.at('document.type', 'post')],
+    {
+      pageSize: 1,
+      after: response.id,
+      orderings: '[document.first_publication_date]',
+    }
+  );
+
+  const nextPost = await prismic.query(
+    [Prismic.Predicates.at('document.type', 'post')],
+    {
+      pageSize: 1,
+      after: response.id,
+      orderings: '[document.last_publication_date desc]',
+    }
+  );
+
   const post = {
     uid: response.uid,
     first_publication_date: response.first_publication_date,
+    last_publication_date: response.last_publication_date,
     data: {
       title: response.data.title,
       subtitle: response.data.subtitle,
@@ -146,6 +227,12 @@ export const getStaticProps: GetStaticProps = async context => {
     },
   };
   return {
-    props: { post },
+    props: {
+      post,
+      navigation: {
+        prevPost: prevPost?.results,
+        nextPost: nextPost?.results,
+      },
+    },
   };
 };
